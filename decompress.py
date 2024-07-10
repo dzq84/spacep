@@ -115,7 +115,7 @@ def process_decompressed_batch(model, batch, device):
     with torch.no_grad():
         decompressed_data = model.decoder(batch)
 
-    return decompressed_data.cpu().numpy()
+    return decompressed_data.cpu()
 
 # 解压缩 HDF5 文件
 def decompress_h5_file(model, input_h5_file, output_h5_file, batch_size=32):
@@ -126,7 +126,6 @@ def decompress_h5_file(model, input_h5_file, output_h5_file, batch_size=32):
 
     for compressed_feature, p_min, p_max in tqdm(dataloader, desc="Decompressing batches"):
         decompressed_batch = process_decompressed_batch(model, compressed_feature, device)
-        decompressed_batch = torch.from_numpy(decompressed_batch)
 
         current_batch_size = decompressed_batch.shape[0]  # 动态获取当前批次的大小
 
@@ -135,14 +134,14 @@ def decompress_h5_file(model, input_h5_file, output_h5_file, batch_size=32):
         p_max = p_max.view(current_batch_size, 1, 1, 1, 1)
         denormalized_data = decompressed_batch * (p_max - p_min) + p_min
 
-        # 将解压缩后的数据形状从 (B, 1, T, 128, 128) 调整为 (1, B*T, 128, 128)
-        B, _, T, H, W = denormalized_data.shape
-        denormalized_data = denormalized_data.reshape(1, B * T, H, W)
+        # 将解压缩后的数据形状从 (B, C, H, W, T) 调整为 (1, B*T, H, W)
+        B, C, H, W, T = denormalized_data.shape
+        denormalized_data = denormalized_data.permute(1, 0, 4, 2, 3).reshape(1, B * T, H, W)
 
         # 将每个批次的数据添加到解压缩数据列表中
-        decompressed_data.append(denormalized_data)
+        decompressed_data.append(denormalized_data.numpy())
 
-    decompressed_data = np.concatenate(decompressed_data, axis=1)  # 将所有批次的数据连接起来，形成 (1, N*B*T, 128, 128)
+    decompressed_data = np.concatenate(decompressed_data, axis=1)  # 将所有批次的数据连接起来，形成 (1, N*B*T, H, W)
     
     # 将解压缩后的数据保存到新的 HDF5 文件中
     with h5py.File(output_h5_file, 'w') as hf:
